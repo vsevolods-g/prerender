@@ -1,16 +1,20 @@
 const express = require('express');
 const { Chrome } = require('./lib/browser/chrome');
-const app = express();
-const port = 3000; // Set the port number you want to use
-const { RedisClient } = require('./lib/server/redis');
+const { MongoDBClient } = require('./lib/server/mongo');
+const { ApolloServer } = require('apollo-server-express');
 const parseSitemap = require('./lib/utils/parse-sitemap');
+const { typeDefs } = require('./lib/server/graphql/schema');
+const { resolvers } = require('./lib/server/graphql/resolvers');
 
 require('dotenv').config();
 
-let browser;
-let redisClient;
+const app = express();
+const port = 3001; // Set the port number you want to use
 
-const checkRedisCache = async (req, res, next) => {
+let browser;
+let mongo;
+
+const checkCache = async (req, res, next) => {
     const { query: { url } } = req;
 
     if (!url) {
@@ -19,10 +23,10 @@ const checkRedisCache = async (req, res, next) => {
         return;
     }
 
-    const cachedResult = await redisClient.getCachedPage(url) || false;
+    const cache = await mongo.getCache(url);
 
-    if (cachedResult) {
-        const { status, content } = JSON.parse(cachedResult);
+    if (cache) {
+        const { status, content } = cache;
 
         res.status(status).send(content);
 
@@ -33,13 +37,8 @@ const checkRedisCache = async (req, res, next) => {
 }
 
 // Define a route
-app.get('/', checkRedisCache, async (req, res) => {
+app.get('/', checkCache, async (req, res) => {
     const { query: { url }, headers: { 'user-agent': userAgent } } = req;
-
-    if (!url) {
-        res.send('Missing url param');
-        return;
-    }
 
     browser.setUserAgent(userAgent);
     const page = await browser.openNewTab({ targetUrl: url });
@@ -48,7 +47,7 @@ app.get('/', checkRedisCache, async (req, res) => {
     const content = page.pageContent;
 
     try {
-        await redisClient.cachePage(url, content, status);
+        await mongo.insertCache({ url, content, status });
     } catch(e) {
         console.log(e);
     }
@@ -59,21 +58,19 @@ app.get('/', checkRedisCache, async (req, res) => {
 app.get('/cache/delete', async (req, res) => {
     const { query: { url } } = req;
 
-    const result = await redisClient.clearCacheForPage(url);
+    try {
+        const { deletedCount } = await mongo.deleteCache(url);
 
-    if (result === 1) {
+        if (!deletedCount) {
+            res.status(404).send(`Cache for url: "${url}" doesn't exists.`)
+
+            return;
+        }
+
         res.status(200).send(`Cache for url: "${url}" deleted successfully.`)
-
-        return;
+    } catch(e) {
+        res.status(500).send(`Error while deleting cache for url: ${url}`);
     }
-
-    if (result === 0) {
-        res.status(404).send(`Cache for url: "${url}" doesn't exists.`)
-
-        return;
-    }
-
-    res.status(200).send('test');
 });
 
 app.get('/prerender/sitemap', async (req, res) => {
@@ -101,32 +98,40 @@ app.get('/prerender/sitemap', async (req, res) => {
     }
 
 
-    res.status(200).send('test');
+    res.status(200).send('Sitemap prerender finished');
 });
 
 async function getSiteMapUrl(url) {
-    console.log('sitemap prerender start: ', url);
     const page = await browser.openNewTab({ targetUrl: url });
-    console.log('sitemap prerender finish: ', url)
     const status = browser.pagesStatusCode[url];
     const content = page.pageContent;
 
-    await redisClient.cachePage(url, content, status);
+    await mongo.insertCache({ url, content, status });
 }
+
+async function startServer() {
+    const apolloServer = new ApolloServer({ typeDefs, resolvers });
+    await apolloServer.start();
+
+    apolloServer.applyMiddleware({ app, path: '/graphql' });
+}
+
+startServer();
 
 // Start the server
 app.listen(port, async () => {
-    if (!redisClient) {
-        redisClient = new RedisClient();
-
-        await redisClient.init();
-    }
-
     if (!browser) {
         browser = new Chrome();
 
         await browser.startBrowser();
         await browser.connectDevTools();
+    }
+
+    if (!mongo) {
+        mongo = new MongoDBClient({url: 'mongodb://localhost:27017'})
+
+        await mongo.connect();
+        await mongo.createTTLIndex();
     }
 
     console.log(`Server is running on port ${port}`);
