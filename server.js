@@ -9,7 +9,7 @@ const { resolvers } = require('./lib/server/graphql/resolvers');
 require('dotenv').config();
 
 const app = express();
-const port = 3001; // Set the port number you want to use
+const port = process.env['EXPRESS_SERVER_PORT']; // Set the port number you want to use
 
 let browser;
 let mongo;
@@ -128,7 +128,7 @@ app.listen(port, async () => {
     }
 
     if (!mongo) {
-        mongo = new MongoDBClient({url: 'mongodb://localhost:27017'})
+        mongo = new MongoDBClient()
 
         await mongo.connect();
         await mongo.createTTLIndex();
