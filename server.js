@@ -21,7 +21,7 @@ function getUserFromRequest(req) {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    return decoded.userId;
+    return { userId: decoded.userId, userRole: decoded.role };
   } catch (error) {
     console.error('JWT verification error:', error);
     return null;
@@ -70,9 +70,9 @@ async function startServer() {
     typeDefs,
     resolvers,
     context: ({ req }) => {
-      const userId = getUserFromRequest(req);
+      const { userId, role } = getUserFromRequest(req);
       const userAgent = req.headers['user-agent'];
-      return { userId, userAgent };
+      return { userId, role, userAgent };
     },
   });
   await apolloServer.start();
