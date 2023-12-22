@@ -15,16 +15,23 @@ const port = process.env['EXPRESS_SERVER_PORT']; // Set the port number you want
 let browser;
 let mongo;
 
-function getUserFromRequest(req) {
+function getUserDetailsFromRequest(req) {
   const token = req.headers.authorization?.split(' ')[1];
-  if (!token) return null;
+  if (!token) {
+    console.error('No token found in request');
+    return { userId: null, role: null, organizationId: null };
+  }
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    return { userId: decoded.userId, userRole: decoded.role };
+    return {
+      userId: decoded.userId || null,
+      role: decoded.role || null,
+      organizationId: decoded.organizationId || null,
+    };
   } catch (error) {
     console.error('JWT verification error:', error);
-    return null;
+    return { userId: null, role: null, organizationId: null };
   }
 }
 
@@ -70,9 +77,9 @@ async function startServer() {
     typeDefs,
     resolvers,
     context: ({ req }) => {
-      const { userId, role } = getUserFromRequest(req);
+      const { userId, role, organizationId } = getUserDetailsFromRequest(req);
       const userAgent = req.headers['user-agent'];
-      return { userId, role, userAgent };
+      return { userId, role, organizationId, userAgent };
     },
   });
   await apolloServer.start();
