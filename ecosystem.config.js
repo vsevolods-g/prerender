@@ -17,7 +17,9 @@ module.exports = {
               "302_STATUS_CACHE_DAYS": 0,
               "301_STATUS_CACHE_DAYS": 0,
               "IN_PARALLEL_RENDER_URLS_COUNT": 5,
-              "EXPRESS_SERVER_PORT": 3000
+              "EXPRESS_SERVER_PORT": 3000,
+              "JWT_SECRET": "b889a1e0f8d85f8f3dc608516f1755ca9a048783f4d14e038865772859222d0d;",
+              "GOOGLE_CLIENT_ID": "976780435712-tto9pd3ubf7f0ot46j37ojcc43mj0d9j.apps.googleusercontent.com"
            }
         }
     ]
