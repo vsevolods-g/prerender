@@ -15,6 +15,30 @@ const port = process.env['EXPRESS_SERVER_PORT']; // Set the port number you want
 let browser;
 let mongo;
 
+const checkCache = async (req, res, next) => {
+  const {
+    query: { url },
+  } = req;
+
+  if (!url) {
+    res.send('Missing url param');
+
+    return;
+  }
+
+  const cache = await mongo.getCache(url);
+
+  if (cache) {
+    const { status, content } = cache;
+
+    res.status(status).send(content);
+
+    return;
+  }
+
+  next();
+};
+
 function getUserDetailsFromRequest(req) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) {
@@ -34,6 +58,27 @@ function getUserDetailsFromRequest(req) {
     return { userId: null, role: null, organizationId: null };
   }
 }
+
+app.get('/', checkCache, async (req, res) => {
+  const {
+    query: { url },
+    headers: { 'user-agent': userAgent },
+  } = req;
+
+  browser.setUserAgent(userAgent);
+  const page = await browser.openNewTab({ targetUrl: url });
+
+  const status = browser.pagesStatusCode[url] || 200;
+  const content = page.pageContent;
+
+  try {
+    await mongo.insertCache({ url, content, status });
+  } catch (e) {
+    console.log(e);
+  }
+
+  res.status(status).send(content);
+});
 
 app.get('/prerender/sitemap', async (req, res) => {
   const {
