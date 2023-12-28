@@ -43,7 +43,7 @@ function getUserDetailsFromRequest(req) {
   const token = req.headers.authorization?.split(' ')[1];
   if (!token) {
     console.error('No token found in request');
-    return { userId: null, role: null, organizationId: null };
+    return { userId: null, role: null, organizationIds: [] };
   }
 
   try {
@@ -51,14 +51,13 @@ function getUserDetailsFromRequest(req) {
     return {
       userId: decoded.userId || null,
       role: decoded.role || null,
-      organizationId: decoded.organizationId || null,
+      organizationIds: decoded.organizationIds || [],
     };
   } catch (error) {
     console.error('JWT verification error:', error);
-    return { userId: null, role: null, organizationId: null };
+    return { userId: null, role: null, organizationIds: [] };
   }
 }
-
 app.get('/', checkCache, async (req, res) => {
   const {
     query: { url },
@@ -122,9 +121,9 @@ async function startServer() {
     typeDefs,
     resolvers,
     context: ({ req }) => {
-      const { userId, role, organizationId } = getUserDetailsFromRequest(req);
+      const { userId, role, organizationIds } = getUserDetailsFromRequest(req);
       const userAgent = req.headers['user-agent'];
-      return { userId, role, organizationId, userAgent };
+      return { userId, role, organizationIds, userAgent };
     },
   });
   await apolloServer.start();
