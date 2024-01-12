@@ -6,6 +6,10 @@ const parseSitemap = require('./lib/utils/parse-sitemap');
 const { typeDefs } = require('./lib/server/graphql/schema');
 const { resolvers } = require('./lib/server/graphql/resolvers');
 const jwt = require('jsonwebtoken');
+const {
+  recacheQueue,
+  processRecacheJob,
+} = require('./lib/utils/recache-queue');
 
 require('dotenv').config();
 
@@ -14,6 +18,8 @@ const port = process.env['EXPRESS_SERVER_PORT']; // Set the port number you want
 
 let browser;
 let mongo;
+
+recacheQueue.process(5, processRecacheJob);
 
 const checkCache = async (req, res, next) => {
   const {
