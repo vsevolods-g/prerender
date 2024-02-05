@@ -6,7 +6,7 @@ const { ApolloServer } = require('apollo-server-express');
 const { typeDefs } = require('./lib/server/graphql/schema');
 const { resolvers } = require('./lib/server/graphql/resolvers');
 const jwt = require('jsonwebtoken');
-
+const schedule = require('node-schedule');
 require('dotenv').config();
 
 const app = express();
@@ -15,13 +15,7 @@ const port = process.env['EXPRESS_SERVER_PORT']; // Set the port number you want
 let browser;
 let mongo;
 
-app.get('/', checkCache, async (req, res) => {
-    const {
-        query: { url },
-        headers: { 'user-agent': userAgent },
-    } = req;
-
-    browser.setUserAgent(userAgent);
+async function prerenderPage(url, isUpdateCache = false) {
     const page = await browser.openNewTab({ targetUrl: url });
 
     const status = browser.pagesStatusCode[url] || 200;
@@ -34,69 +28,44 @@ app.get('/', checkCache, async (req, res) => {
     }
 
     try {
-        await mongo.insertCache({ url, content, status });
+        if (isUpdateCache) {
+            await mongo.updateCache({ url, content, status });
+        } else {
+            await mongo.insertCache({ url, content, status });
+        }
     } catch (e) {
         console.log('Error on saving cache: ', e);
     }
 
-    res.status(status).send(content);
-});
+    return { content, status };
+}
 
-// app.get('/prerender/sitemap', async (req, res) => {
-//     const {
-//         query: { path },
-//         headers: { 'user-agent': userAgent },
-//     } = req;
+function initCacheCheckSchedule() {
+    //Check cache for recache every 1h.
+    schedule.scheduleJob('0 0 */1 * * *', checkExpiredDocuments);
+}
 
-//     browser.setUserAgent(userAgent);
+// initScheduler
+async function checkExpiredDocuments() {
+    try {
+        const currentDateTime = new Date();
+        // Check if cache will expire in next 2h, so we can recache it before
+        currentDateTime.setHours(currentDateTime.getHours() + 2);
+        const expiredDocuments = await mongo.collection
+            .find({ expirationTime: { $lt: currentDateTime } })
+            .toArray();
 
-//     const parsedSitemap = await parseSitemap(path);
+        const recachePromises = expiredDocuments.map(({ key: url }) => {
+            return new Promise((resolve) => {
+                resolve(prerenderPage(url, true));
+            });
+        });
 
-//     const preparedPromises = parsedSitemap.reduce((acc, urlArray) => {
-//         const promisesArray = [];
-
-//         urlArray.map((url) => {
-//             promisesArray.push(() => getSiteMapUrl(url));
-//         });
-
-//         acc.push(promisesArray);
-
-//         return acc;
-//     }, []);
-
-//     for (const arr of preparedPromises) {
-//         await Promise.all(arr.map((fn) => fn()));
-//     }
-
-//     res.status(200).send('Sitemap prerender finished');
-// });
-
-// async function getSiteMapUrl(url) {
-//     const page = await browser.openNewTab({ targetUrl: url });
-//     const status = browser.pagesStatusCode[url];
-//     const content = page.pageContent;
-
-//     await mongo.insertCache({ url, content, status });
-// }
-
-// Start the server
-app.listen(port, async () => {
-    if (!browser) {
-        browser = new Chrome();
-
-        await browser.startBrowser();
-        await browser.connectDevTools();
+        await Promise.all(recachePromises);
+    } catch (error) {
+        console.error('Error checking expired documents:', error);
     }
-
-    if (!mongo) {
-        mongo = new MongoDBClient();
-
-        await mongo.connect();
-        await mongo.createTTLIndex();
-    }
-
-    console.log(`Server is running on port ${port}`);
-});
+}
 
 async function startServer() {
     const apolloServer = new ApolloServer({
@@ -159,3 +128,72 @@ function getUserDetailsFromRequest(req) {
         return { userId: null, role: null, organizationIds: [] };
     }
 }
+
+app.get('/', checkCache, async (req, res) => {
+    const {
+        query: { url },
+        headers: { 'user-agent': userAgent },
+    } = req;
+
+    browser.setUserAgent(userAgent);
+    const { content, status } = await prerenderPage(url);
+
+    res.status(status).send(content);
+});
+
+// app.get('/prerender/sitemap', async (req, res) => {
+//     const {
+//         query: { path },
+//         headers: { 'user-agent': userAgent },
+//     } = req;
+
+//     browser.setUserAgent(userAgent);
+
+//     const parsedSitemap = await parseSitemap(path);
+
+//     const preparedPromises = parsedSitemap.reduce((acc, urlArray) => {
+//         const promisesArray = [];
+
+//         urlArray.map((url) => {
+//             promisesArray.push(() => getSiteMapUrl(url));
+//         });
+
+//         acc.push(promisesArray);
+
+//         return acc;
+//     }, []);
+
+//     for (const arr of preparedPromises) {
+//         await Promise.all(arr.map((fn) => fn()));
+//     }
+
+//     res.status(200).send('Sitemap prerender finished');
+// });
+
+// async function getSiteMapUrl(url) {
+//     const page = await browser.openNewTab({ targetUrl: url });
+//     const status = browser.pagesStatusCode[url];
+//     const content = page.pageContent;
+
+//     await mongo.insertCache({ url, content, status });
+// }
+
+// Start the server
+app.listen(port, async () => {
+    if (!browser) {
+        browser = new Chrome();
+
+        await browser.startBrowser();
+        await browser.connectDevTools();
+    }
+
+    if (!mongo) {
+        mongo = new MongoDBClient();
+
+        await mongo.connect();
+        await mongo.createTTLIndex();
+        initCacheCheckSchedule();
+    }
+
+    console.log(`Server is running on port ${port}`);
+});
