@@ -16,144 +16,145 @@ let browser;
 let mongo;
 
 const checkCache = async (req, res, next) => {
-  const {
-    query: { url },
-  } = req;
+    const {
+        query: { url },
+    } = req;
 
-  if (!url) {
-    res.send('Missing url param');
+    if (!url) {
+        res.send('Missing url param');
 
-    return;
-  }
+        return;
+    }
 
-  const cache = await mongo.getCache(url);
+    const cache = await mongo.getCache(url);
 
-  if (cache) {
-    const { status, content } = cache;
+    if (cache) {
+        const { status, content } = cache;
 
-    res.status(status).send(content);
+        res.status(status).send(content);
 
-    return;
-  }
+        return;
+    }
 
-  next();
+    next();
 };
 
 function getUserDetailsFromRequest(req) {
-  const token = req.headers.authorization?.split(' ')[1];
-  if (!token) {
-    console.error('No token found in request');
-    return { userId: null, role: null, organizationIds: [] };
-  }
+    const token = req.headers.authorization?.split(' ')[1];
+    if (!token) {
+        console.error('No token found in request');
+        return { userId: null, role: null, organizationIds: [] };
+    }
 
-  try {
-    const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    return {
-      userId: decoded.userId || null,
-      role: decoded.role || null,
-      organizationIds: decoded.organizationIds || [],
-    };
-  } catch (error) {
-    console.error('JWT verification error:', error);
-    return { userId: null, role: null, organizationIds: [] };
-  }
+    try {
+        const decoded = jwt.verify(token, process.env.JWT_SECRET);
+        return {
+            userId: decoded.userId || null,
+            role: decoded.role || null,
+            organizationIds: decoded.organizationIds || [],
+        };
+    } catch (error) {
+        console.error('JWT verification error:', error);
+        return { userId: null, role: null, organizationIds: [] };
+    }
 }
 app.get('/', checkCache, async (req, res) => {
-  const {
-    query: { url },
-    headers: { 'user-agent': userAgent },
-  } = req;
+    const {
+        query: { url },
+        headers: { 'user-agent': userAgent },
+    } = req;
 
-  browser.setUserAgent(userAgent);
-  const page = await browser.openNewTab({ targetUrl: url });
+    browser.setUserAgent(userAgent);
+    const page = await browser.openNewTab({ targetUrl: url });
 
-  const status = browser.pagesStatusCode[url] || 200;
-  const content = page.pageContent;
+    const status = browser.pagesStatusCode[url] || 200;
+    const content = page.pageContent;
 
-  try {
-    await browser.deleteStatusCode(url);
-  } catch(e) {
-    console.log('Error on deleting status code from local variable: ', e);
-  }
+    try {
+        await browser.deleteStatusCode(url);
+    } catch (e) {
+        console.log('Error on deleting status code from local variable: ', e);
+    }
 
-  try {
-    await mongo.insertCache({ url, content, status });
-  } catch (e) {
-    console.log('Error on saving cache: ', e);
-  }
+    try {
+        await mongo.insertCache({ url, content, status });
+    } catch (e) {
+        console.log('Error on saving cache: ', e);
+    }
 
-  res.status(status).send(content);
+    res.status(status).send(content);
 });
 
 app.get('/prerender/sitemap', async (req, res) => {
-  const {
-    query: { path },
-    headers: { 'user-agent': userAgent },
-  } = req;
+    const {
+        query: { path },
+        headers: { 'user-agent': userAgent },
+    } = req;
 
-  browser.setUserAgent(userAgent);
+    browser.setUserAgent(userAgent);
 
-  const parsedSitemap = await parseSitemap(path);
+    const parsedSitemap = await parseSitemap(path);
 
-  const preparedPromises = parsedSitemap.reduce((acc, urlArray) => {
-    const promisesArray = [];
+    const preparedPromises = parsedSitemap.reduce((acc, urlArray) => {
+        const promisesArray = [];
 
-    urlArray.map((url) => {
-      promisesArray.push(() => getSiteMapUrl(url));
-    });
+        urlArray.map((url) => {
+            promisesArray.push(() => getSiteMapUrl(url));
+        });
 
-    acc.push(promisesArray);
+        acc.push(promisesArray);
 
-    return acc;
-  }, []);
+        return acc;
+    }, []);
 
-  for (const arr of preparedPromises) {
-    await Promise.all(arr.map((fn) => fn()));
-  }
+    for (const arr of preparedPromises) {
+        await Promise.all(arr.map((fn) => fn()));
+    }
 
-  res.status(200).send('Sitemap prerender finished');
+    res.status(200).send('Sitemap prerender finished');
 });
 
 async function getSiteMapUrl(url) {
-  const page = await browser.openNewTab({ targetUrl: url });
-  const status = browser.pagesStatusCode[url];
-  const content = page.pageContent;
+    const page = await browser.openNewTab({ targetUrl: url });
+    const status = browser.pagesStatusCode[url];
+    const content = page.pageContent;
 
-  await mongo.insertCache({ url, content, status });
+    await mongo.insertCache({ url, content, status });
 }
 
 async function startServer() {
-  const apolloServer = new ApolloServer({
-    typeDefs,
-    resolvers,
-    context: ({ req }) => {
-      const { userId, role, organizationIds } = getUserDetailsFromRequest(req);
-      const userAgent = req.headers['user-agent'];
-      return { userId, role, organizationIds, userAgent };
-    },
-  });
-  await apolloServer.start();
+    const apolloServer = new ApolloServer({
+        typeDefs,
+        resolvers,
+        context: ({ req }) => {
+            const { userId, role, organizationIds } =
+                getUserDetailsFromRequest(req);
+            const userAgent = req.headers['user-agent'];
+            return { userId, role, organizationIds, userAgent };
+        },
+    });
+    await apolloServer.start();
 
-  apolloServer.applyMiddleware({ app, path: '/graphql' });
+    apolloServer.applyMiddleware({ app, path: '/graphql' });
 }
 
 startServer();
 
 // Start the server
 app.listen(port, async () => {
-  if (!browser) {
-    browser = new Chrome();
+    if (!browser) {
+        browser = new Chrome();
 
-    await browser.startBrowser();
-    await browser.connectDevTools();
-  }
+        await browser.startBrowser();
+        await browser.connectDevTools();
+    }
 
-  if (!mongo) {
-    mongo = new MongoDBClient();
+    if (!mongo) {
+        mongo = new MongoDBClient();
 
-    await mongo.connect();
-    await mongo.createTTLIndex();
-  }
+        await mongo.connect();
+        await mongo.createTTLIndex();
+    }
 
-  console.log(`Server is running on port ${port}`);
+    console.log(`Server is running on port ${port}`);
 });

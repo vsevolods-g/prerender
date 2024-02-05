@@ -1,20 +1,20 @@
 version: '3'
 services:
-  express-server:
-    image: aleksandrskondratjevs/prerender:latest
-    build:
-      context: .
-      dockerfile: Dockerfile
-    environment:
-      - XDG_RUNTIME_DIR=/tmp/runtime
-    depends_on:
-      - mongo
-    network_mode: host
+    express-server:
+        image: aleksandrskondratjevs/prerender:latest
+        build:
+            context: .
+            dockerfile: Dockerfile
+        environment:
+            - XDG_RUNTIME_DIR=/tmp/runtime
+        depends_on:
+            - mongo
+        network_mode: host
 
-  mongo:
-    image: mongo
-    ports:
-      - "27017:27017"
-    environment:
-      MONGO_INITDB_ROOT_USERNAME: root
-      MONGO_INITDB_ROOT_PASSWORD: dA8YCJycG64OGDo
+    mongo:
+        image: mongo
+        ports:
+            - '27017:27017'
+        environment:
+            MONGO_INITDB_ROOT_USERNAME: root
+            MONGO_INITDB_ROOT_PASSWORD: dA8YCJycG64OGDo
