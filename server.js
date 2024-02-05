@@ -71,9 +71,15 @@ app.get('/', checkCache, async (req, res) => {
   const content = page.pageContent;
 
   try {
+    await browser.deleteStatusCode(url);
+  } catch(e) {
+    console.log('Error on deleting status code from local variable: ', e);
+  }
+
+  try {
     await mongo.insertCache({ url, content, status });
   } catch (e) {
-    console.log(e);
+    console.log('Error on saving cache: ', e);
   }
 
   res.status(status).send(content);
