@@ -8,12 +8,14 @@ const { resolvers } = require('./lib/server/graphql/resolvers');
 const jwt = require('jsonwebtoken');
 const schedule = require('node-schedule');
 require('dotenv').config();
+const Queue = require('bull');
 
 const app = express();
 const port = process.env['EXPRESS_SERVER_PORT']; // Set the port number you want to use
 
 let browser;
 let mongo;
+const recacheQueue = new Queue('recache', 'redis://127.0.0.1:6379');
 
 async function prerenderPage(url, isUpdateCache = false) {
     const page = await browser.openNewTab({ targetUrl: url });
@@ -40,28 +42,28 @@ async function prerenderPage(url, isUpdateCache = false) {
     return { content, status };
 }
 
+// initScheduler
 function initCacheCheckSchedule() {
-    //Check cache for recache every 1h.
-    schedule.scheduleJob('0 0 */1 * * *', checkExpiredDocuments);
+    schedule.scheduleJob(process.env.SCHEDULE_FREQUENCE, checkExpiredDocuments);
 }
 
-// initScheduler
 async function checkExpiredDocuments() {
     try {
         const currentDateTime = new Date();
-        // Check if cache will expire in next 2h, so we can recache it before
-        currentDateTime.setHours(currentDateTime.getHours() + 2);
+        // Check if cache will expire in next 6h, so we can recache it before
+        currentDateTime.setHours(currentDateTime.getHours() + 6);
         const expiredDocuments = await mongo.collection
-            .find({ expirationTime: { $lt: currentDateTime } })
+            .find({
+                expirationTime: { $lt: currentDateTime },
+                recacheStatus: { $ne: 'pending' },
+                status: { $in: [200] }
+            })
             .toArray();
 
-        const recachePromises = expiredDocuments.map(({ key: url }) => {
-            return new Promise((resolve) => {
-                resolve(prerenderPage(url, true));
-            });
+        expiredDocuments.forEach(async ({ key: url }) => {
+            await mongo.updateRecacheStatus('pending', url);
+            await recacheQueue.add({ url });
         });
-
-        await Promise.all(recachePromises);
     } catch (error) {
         console.error('Error checking expired documents:', error);
     }
@@ -128,6 +130,18 @@ function getUserDetailsFromRequest(req) {
         return { userId: null, role: null, organizationIds: [] };
     }
 }
+
+const processRecacheJob = async (job) => {
+    const { url } = job.data;
+
+    try {
+        await prerenderPage(url, true);
+    } catch (error) {
+        console.log('Error while recaching page: ', error);
+    }
+};
+
+recacheQueue.process(50, processRecacheJob);
 
 app.get('/', checkCache, async (req, res) => {
     const {
