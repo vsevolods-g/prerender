@@ -51,7 +51,7 @@ async function checkExpiredDocuments() {
     try {
         const currentDateTime = new Date();
         // Check if cache will expire in next 6h, so we can recache it before
-        currentDateTime.setHours(currentDateTime.getHours() + 6);
+        currentDateTime.setHours(currentDateTime.getHours() + 24);
         const expiredDocuments = await mongo.collection
             .find({
                 expirationTime: { $lt: currentDateTime },
