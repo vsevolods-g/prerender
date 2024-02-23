@@ -62,14 +62,16 @@ async function checkExpiredDocuments() {
 
         expiredDocuments.forEach(async ({ key: url }) => {
             await mongo.updateRecacheStatus('pending', url);
-            let domainName = (new URL(url)).hostname.replace('www.', '');
-            let queueIndex = queues.findIndex(element => element.name === domainName);
+            let domainName = (new URL(url)).hostname;
+            let queueIndex = queues.findIndex(element => element.name === domainName.replace('www.', ''));
+            let domainSettings = await mongo.domainSettingsCollection.findOne({domain: domainName})
+            let concurrency = domainSettings?.values[0].concurrency || 50;
 
             if (queueIndex > -1) {
                 await queues[queueIndex].add({ url });
             } else {
-                queues.push(new Queue(domainName, 'redis://127.0.0.1:6379'));
-                queues[queues.length - 1].process(50, processRecacheJob);
+                queues.push(new Queue(domainName.replace('www.', ''), 'redis://127.0.0.1:6379'));
+                queues[queues.length - 1].process(concurrency, processRecacheJob);
             }
         });
     } catch (error) {
