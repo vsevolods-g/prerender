@@ -55,7 +55,6 @@ async function checkExpiredDocuments() {
         const expiredDocuments = await mongo.collection
             .find({
                 expirationTime: { $lt: currentDateTime },
-                recacheStatus: { $ne: 'pending' },
                 status: { $in: [200] }
             })
             .toArray();
@@ -65,14 +64,15 @@ async function checkExpiredDocuments() {
             let domainName = (new URL(url)).hostname;
             let queueIndex = queues.findIndex(element => element.name === domainName.replace('www.', ''));
             let domainSettings = await mongo.domainSettingsCollection.findOne({domain: domainName})
-            let concurrency = domainSettings?.values[0].concurrency || 50;
+            let concurrency = parseInt(domainSettings?.values[0].concurrency) || 50;
 
-            if (queueIndex > -1) {
-                await queues[queueIndex].add({ url });
-            } else {
+            if (queueIndex < 0) {
                 queues.push(new Queue(domainName.replace('www.', ''), 'redis://127.0.0.1:6379'));
-                queues[queues.length - 1].process(concurrency, processRecacheJob);
+                queueIndex = queues.length - 1;
+                queues[queueIndex].process(concurrency, processRecacheJob);
             }
+
+            await queues[queueIndex].add({ url });
         });
     } catch (error) {
         console.error('Error checking expired documents:', error);
