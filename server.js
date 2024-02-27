@@ -55,6 +55,7 @@ async function checkExpiredDocuments() {
         const expiredDocuments = await mongo.collection
             .find({
                 expirationTime: { $lt: currentDateTime },
+                recacheStatus: { $ne: 'pending' },
                 status: { $in: [200] }
             })
             .toArray();
