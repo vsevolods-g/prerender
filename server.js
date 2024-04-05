@@ -15,7 +15,7 @@ const port = process.env['EXPRESS_SERVER_PORT']; // Set the port number you want
 
 let browser;
 let mongo;
-const recacheQueue = new Queue('recache', 'redis://127.0.0.1:6379');
+let queues = [];
 
 async function prerenderPage(url, isUpdateCache = false) {
     const page = await browser.openNewTab({ targetUrl: url });
@@ -62,7 +62,17 @@ async function checkExpiredDocuments() {
 
         expiredDocuments.forEach(async ({ key: url }) => {
             await mongo.updateRecacheStatus('pending', url);
-            await recacheQueue.add({ url });
+            let domainName = (new URL(url)).hostname;
+            let queueIndex = queues.findIndex(element => element.name === domainName.replace('www.', ''));
+            let domainSettings = await mongo.domainSettingsCollection.findOne({domain: domainName})
+            let concurrency = domainSettings?.values[0].concurrency || 50;
+
+            if (queueIndex > -1) {
+                await queues[queueIndex].add({ url });
+            } else {
+                queues.push(new Queue(domainName.replace('www.', ''), 'redis://127.0.0.1:6379'));
+                queues[queues.length - 1].process(concurrency, processRecacheJob);
+            }
         });
     } catch (error) {
         console.error('Error checking expired documents:', error);
@@ -140,8 +150,6 @@ const processRecacheJob = async (job) => {
         console.log('Error while recaching page: ', error);
     }
 };
-
-recacheQueue.process(50, processRecacheJob);
 
 app.get('/', checkCache, async (req, res) => {
     const {
